@@ -41,6 +41,9 @@ colnames(counts_matrix) <- gsub("03_alignment.", "", colnames(counts_matrix))
 
 cat("   样本名称:", paste(colnames(counts_matrix), collapse = ", "), "\n")
 
+# 保存原始counts矩阵（用于生成质控前的PCA图）
+counts_matrix_all <- counts_matrix
+
 ################################################################################
 # 2. 样本质量控制 - 排除PCA离群样本
 ################################################################################
@@ -312,7 +315,75 @@ cat(sprintf("   边缘显著基因 (padj 0.25-0.5): %d 个\n", nrow(marginal_gen
 ################################################################################
 cat("\n11. 生成可视化图形...\n")
 
-# 11.1 火山图
+# 11.1 PCA图 - 质量控制对比
+cat("   生成PCA图（质控前后对比）...\n")
+
+# PCA图 - 排除离群样本前（所有样本）
+cat("     - 生成质控前PCA图（所有样本）\n")
+sample_names_all <- colnames(counts_matrix_all)
+group_all <- ifelse(grepl("^Mod-", sample_names_all), "Mod", "ZYD")
+sample_info_all <- data.frame(
+  sample = sample_names_all,
+  group = factor(group_all, levels = c("Mod", "ZYD")),
+  row.names = sample_names_all
+)
+
+# 创建临时DESeq2对象用于VST转换
+keep_loose_all <- rowSums(counts_matrix_all) >= 5
+dds_all <- DESeqDataSetFromMatrix(
+  countData = counts_matrix_all[keep_loose_all, ],
+  colData = sample_info_all,
+  design = ~ group
+)
+vsd_all <- vst(dds_all, blind = TRUE)
+
+# 计算PCA
+pca_data_all <- plotPCA(vsd_all, intgroup = "group", returnData = TRUE)
+percentVar_all <- round(100 * attr(pca_data_all, "percentVar"))
+
+# 绘制PCA图（质控前）
+pdf("PCA_plot_before_QC.pdf", width = 10, height = 8)
+p_before <- ggplot(pca_data_all, aes(x = PC1, y = PC2, color = group, label = name)) +
+  geom_point(size = 4, alpha = 0.8) +
+  geom_text_repel(size = 3, max.overlaps = 20) +
+  scale_color_manual(values = c("Mod" = "#E41A1C", "ZYD" = "#377EB8")) +
+  labs(title = "PCA Plot - Before Quality Control (All Samples)",
+       subtitle = "Outlier samples: Mod-53, ZYD-F-70, ZYD-F-62",
+       x = paste0("PC1: ", percentVar_all[1], "% variance"),
+       y = paste0("PC2: ", percentVar_all[2], "% variance")) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "top",
+        plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5, color = "red"))
+print(p_before)
+dev.off()
+
+# PCA图 - 排除离群样本后
+cat("     - 生成质控后PCA图（过滤后样本）\n")
+vsd <- vst(dds, blind = TRUE)
+pca_data <- plotPCA(vsd, intgroup = "group", returnData = TRUE)
+percentVar <- round(100 * attr(pca_data, "percentVar"))
+
+pdf("PCA_plot_after_QC.pdf", width = 10, height = 8)
+p_after <- ggplot(pca_data, aes(x = PC1, y = PC2, color = group, label = name)) +
+  geom_point(size = 4, alpha = 0.8) +
+  geom_text_repel(size = 3, max.overlaps = 20) +
+  scale_color_manual(values = c("Mod" = "#E41A1C", "ZYD" = "#377EB8")) +
+  labs(title = "PCA Plot - After Quality Control",
+       subtitle = sprintf("Retained %d samples (Mod: %d, ZYD: %d)",
+                         ncol(counts_matrix),
+                         sum(sample_info$group == "Mod"),
+                         sum(sample_info$group == "ZYD")),
+       x = paste0("PC1: ", percentVar[1], "% variance"),
+       y = paste0("PC2: ", percentVar[2], "% variance")) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "top",
+        plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5, color = "darkgreen"))
+print(p_after)
+dev.off()
+
+# 11.3 火山图
 cat("   生成火山图...\n")
 volcano_data <- res_df
 volcano_data$significant <- "NO"
@@ -352,7 +423,7 @@ p <- ggplot(volcano_data, aes(x = log2FoldChange, y = -log10(pvalue))) +
 print(p)
 dev.off()
 
-# 11.2 MA图
+# 11.4 MA图
 cat("   生成MA图...\n")
 pdf("MA_plot_relaxed.pdf", width = 10, height = 8)
 plotMA(res, ylim = c(-5, 5), 
@@ -362,7 +433,7 @@ plotMA(res, ylim = c(-5, 5),
        colSig = "red3")
 dev.off()
 
-# 11.3 差异基因热图
+# 11.5 差异基因热图
 if (nrow(sig_genes) >= 2) {
   cat("   生成差异基因热图...\n")
 
@@ -436,7 +507,7 @@ if (nrow(sig_genes) >= 2) {
   }
 }
 
-# 11.4 表达量箱线图（top差异基因）
+# 11.6 表达量箱线图（top差异基因）
 cat("   生成top差异基因表达箱线图...\n")
 top_degs <- rownames(sig_genes)[1:min(20, nrow(sig_genes))]
 normalized_counts <- counts(dds, normalized = TRUE)
@@ -501,10 +572,12 @@ DESeq2 差异表达分析报告 - 宽松阈值版本（排除离群样本）
 9. marginal_significant_genes.csv - 边缘显著基因
 
 可视化文件:
-10. volcano_plot_relaxed.pdf - 火山图
-11. MA_plot_relaxed.pdf - MA图
-12. heatmap_DEGs_relaxed.pdf - 差异基因热图
-13. top_DEGs_boxplot_relaxed.pdf - Top差异基因箱线图
+10. PCA_plot_before_QC.pdf - PCA图（质控前，所有样本）
+11. PCA_plot_after_QC.pdf - PCA图（质控后，过滤样本）
+12. volcano_plot_relaxed.pdf - 火山图
+13. MA_plot_relaxed.pdf - MA图
+14. heatmap_DEGs_relaxed.pdf - 差异基因热图
+15. top_DEGs_boxplot_relaxed.pdf - Top差异基因箱线图
 
 注意事项:
 - 使用了宽松的阈值以获得更多差异基因
