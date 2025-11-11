@@ -42,9 +42,24 @@ colnames(counts_matrix) <- gsub("03_alignment.", "", colnames(counts_matrix))
 cat("   样本名称:", paste(colnames(counts_matrix), collapse = ", "), "\n")
 
 ################################################################################
-# 2. 准备样本信息
+# 2. 样本质量控制 - 排除PCA离群样本
 ################################################################################
-cat("\n2. 准备样本信息...\n")
+cat("\n2. 样本质量控制...\n")
+
+# 根据PCA分析结果，排除严重离群的样本
+outlier_samples <- c("Mod-53", "ZYD-F-70", "ZYD-F-62")
+cat("   排除离群样本:", paste(outlier_samples, collapse = ", "), "\n")
+cat("   原因: PCA图显示这些样本严重偏离各自组的中心\n")
+
+# 过滤样本
+counts_matrix <- counts_matrix[, !(colnames(counts_matrix) %in% outlier_samples)]
+cat("   保留样本数:", ncol(counts_matrix), "\n")
+cat("   保留样本:", paste(colnames(counts_matrix), collapse = ", "), "\n")
+
+################################################################################
+# 3. 准备样本信息
+################################################################################
+cat("\n3. 准备样本信息...\n")
 sample_names <- colnames(counts_matrix)
 group <- ifelse(grepl("^Mod-", sample_names), "Mod", "ZYD")
 
@@ -58,9 +73,9 @@ cat("   样本分组:\n")
 print(table(sample_info$group))
 
 ################################################################################
-# 3. 基因过滤策略 - 使用多种策略寻找最优方案
+# 4. 基因过滤策略 - 使用多种策略寻找最优方案
 ################################################################################
-cat("\n3. 测试不同的基因过滤策略...\n")
+cat("\n4. 测试不同的基因过滤策略...\n")
 
 # 策略1: 极宽松过滤（总counts >= 1）
 keep_very_loose <- rowSums(counts_matrix) >= 1
@@ -88,9 +103,9 @@ cat(sprintf("   策略5 - 至少一组平均表达 >= 1: %d 基因\n", sum(keep_
 cat("\n   选择策略2（宽松过滤）进行分析\n")
 
 ################################################################################
-# 4. 创建DESeq2对象并运行分析
+# 5. 创建DESeq2对象并运行分析
 ################################################################################
-cat("\n4. 创建DESeq2对象并运行差异分析...\n")
+cat("\n5. 创建DESeq2对象并运行差异分析...\n")
 
 dds <- DESeqDataSetFromMatrix(
   countData = counts_matrix[keep_loose, ],
@@ -109,9 +124,9 @@ cat("\n   标准化因子:\n")
 print(data.frame(Sample = names(sf), SizeFactor = round(sf, 3)))
 
 ################################################################################
-# 5. 提取结果并测试不同阈值
+# 6. 提取结果并测试不同阈值
 ################################################################################
-cat("\n5. 提取差异分析结果...\n")
+cat("\n6. 提取差异分析结果...\n")
 
 # 提取结果 (ZYD vs Mod)
 res <- results(dds, contrast = c("group", "ZYD", "Mod"))
@@ -129,9 +144,9 @@ padj_hist <- cut(res$padj, breaks = p_breaks)
 print(table(padj_hist, useNA = "ifany"))
 
 ################################################################################
-# 6. 使用宽松阈值筛选差异基因
+# 7. 使用宽松阈值筛选差异基因
 ################################################################################
-cat("\n6. 使用不同阈值筛选差异基因...\n")
+cat("\n7. 使用不同阈值筛选差异基因...\n")
 
 # 测试多种阈值组合
 thresholds <- list(
@@ -179,9 +194,9 @@ for (name in names(thresholds)) {
 write.csv(threshold_summary, "threshold_comparison_relaxed.csv", row.names = FALSE)
 
 ################################################################################
-# 7. 使用目标阈值提取差异基因
+# 8. 使用目标阈值提取差异基因
 ################################################################################
-cat("\n7. 使用目标阈值 (padj < 0.25, |log2FC| > 0.5) 提取差异基因...\n")
+cat("\n8. 使用目标阈值 (padj < 0.25, |log2FC| > 0.5) 提取差异基因...\n")
 
 padj_threshold <- 0.25
 log2fc_threshold <- 0.5
@@ -241,9 +256,9 @@ cat(sprintf("   上调基因: %d\n", nrow(up_genes)))
 cat(sprintf("   下调基因: %d\n", nrow(down_genes)))
 
 ################################################################################
-# 8. 保存差异基因列表
+# 9. 保存差异基因列表
 ################################################################################
-cat("\n8. 保存结果文件...\n")
+cat("\n9. 保存结果文件...\n")
 
 # 保存所有结果
 write.csv(res_df[order(res_df$padj), ], 
@@ -271,9 +286,9 @@ write.table(rownames(sig_genes),
             col.names = FALSE)
 
 ################################################################################
-# 9. 探索性分析 - 查找更多潜在的差异基因
+# 10. 探索性分析 - 查找更多潜在的差异基因
 ################################################################################
-cat("\n9. 探索性分析...\n")
+cat("\n10. 探索性分析...\n")
 
 # Top基因（按p值）
 top50_pvalue <- head(res_df[order(res_df$pvalue), ], 50)
@@ -293,11 +308,11 @@ write.csv(marginal_genes, "marginal_significant_genes.csv", row.names = TRUE)
 cat(sprintf("   边缘显著基因 (padj 0.25-0.5): %d 个\n", nrow(marginal_genes)))
 
 ################################################################################
-# 10. 生成可视化图形
+# 11. 生成可视化图形
 ################################################################################
-cat("\n10. 生成可视化图形...\n")
+cat("\n11. 生成可视化图形...\n")
 
-# 10.1 火山图
+# 11.1 火山图
 cat("   生成火山图...\n")
 volcano_data <- res_df
 volcano_data$significant <- "NO"
@@ -337,7 +352,7 @@ p <- ggplot(volcano_data, aes(x = log2FoldChange, y = -log10(pvalue))) +
 print(p)
 dev.off()
 
-# 10.2 MA图
+# 11.2 MA图
 cat("   生成MA图...\n")
 pdf("MA_plot_relaxed.pdf", width = 10, height = 8)
 plotMA(res, ylim = c(-5, 5), 
@@ -347,54 +362,81 @@ plotMA(res, ylim = c(-5, 5),
        colSig = "red3")
 dev.off()
 
-# 10.3 差异基因热图
+# 11.3 差异基因热图
 if (nrow(sig_genes) >= 2) {
   cat("   生成差异基因热图...\n")
-  
+
   # VST转换
   vsd <- vst(dds, blind = FALSE)
-  
-  # 选择要展示的基因（最多100个）
-  n_genes <- min(100, nrow(sig_genes))
-  if (nrow(sig_genes) > 100) {
-    # 选择最显著的100个
-    plot_genes <- rownames(sig_genes)[1:100]
+
+  # 选择要展示的基因（最多50个以便显示基因名）
+  n_genes <- min(50, nrow(sig_genes))
+  if (nrow(sig_genes) > 50) {
+    # 选择最显著的50个
+    plot_genes <- rownames(sig_genes)[1:50]
+    cat(sprintf("   选择最显著的 %d 个基因用于热图展示\n", n_genes))
   } else {
     plot_genes <- rownames(sig_genes)
   }
-  
+
   # 提取表达矩阵并标准化
   mat <- assay(vsd)[plot_genes, ]
   mat_scaled <- t(scale(t(mat)))
-  
+
   # 样本注释
   annotation_col <- data.frame(
     Group = sample_info$group,
     row.names = colnames(mat)
   )
-  
+
   # 配色
   ann_colors <- list(Group = c(Mod = "#E41A1C", ZYD = "#377EB8"))
-  
-  pdf("heatmap_DEGs_relaxed.pdf", width = 10, height = 12)
+
+  # 生成热图 - 显示基因名称
+  pdf("heatmap_DEGs_relaxed.pdf", width = 10, height = 14)
   pheatmap(
     mat_scaled,
     annotation_col = annotation_col,
     annotation_colors = ann_colors,
     cluster_rows = TRUE,
     cluster_cols = TRUE,
-    show_rownames = ifelse(n_genes <= 50, TRUE, FALSE),
+    show_rownames = TRUE,  # 始终显示基因名
     show_colnames = TRUE,
     scale = "none",
     color = colorRampPalette(rev(brewer.pal(11, "RdBu")))(100),
-    main = sprintf("Top %d Differentially Expressed Genes", n_genes),
+    main = sprintf("Top %d Differentially Expressed Genes\n(After removing outlier samples)", n_genes),
     fontsize = 10,
-    fontsize_row = 6
+    fontsize_row = 8,  # 增大字体以便阅读
+    cellwidth = 20,
+    cellheight = 10
   )
   dev.off()
+
+  # 如果差异基因多，再生成一个包含所有基因但不显示名称的版本
+  if (nrow(sig_genes) > 50) {
+    cat(sprintf("   生成包含所有 %d 个差异基因的热图（不显示基因名）\n", nrow(sig_genes)))
+    mat_all <- assay(vsd)[rownames(sig_genes), ]
+    mat_all_scaled <- t(scale(t(mat_all)))
+
+    pdf("heatmap_all_DEGs_relaxed.pdf", width = 10, height = 12)
+    pheatmap(
+      mat_all_scaled,
+      annotation_col = annotation_col,
+      annotation_colors = ann_colors,
+      cluster_rows = TRUE,
+      cluster_cols = TRUE,
+      show_rownames = FALSE,
+      show_colnames = TRUE,
+      scale = "none",
+      color = colorRampPalette(rev(brewer.pal(11, "RdBu")))(100),
+      main = sprintf("All %d Differentially Expressed Genes\n(After removing outlier samples)", nrow(sig_genes)),
+      fontsize = 10
+    )
+    dev.off()
+  }
 }
 
-# 10.4 表达量箱线图（top差异基因）
+# 11.4 表达量箱线图（top差异基因）
 cat("   生成top差异基因表达箱线图...\n")
 top_degs <- rownames(sig_genes)[1:min(20, nrow(sig_genes))]
 normalized_counts <- counts(dds, normalized = TRUE)
@@ -413,16 +455,20 @@ for (gene in top_degs) {
 dev.off()
 
 ################################################################################
-# 11. 生成分析报告
+# 12. 生成分析报告
 ################################################################################
-cat("\n11. 生成分析报告...\n")
+cat("\n12. 生成分析报告...\n")
 
 report <- sprintf("
 ================================================================================
-DESeq2 差异表达分析报告 - 宽松阈值版本
+DESeq2 差异表达分析报告 - 宽松阈值版本（排除离群样本）
 ================================================================================
 分析日期: %s
 使用阈值: padj < %.2f, |log2FC| > %.1f
+
+样本质量控制:
+- 排除离群样本: Mod-53, ZYD-F-70, ZYD-F-62
+- 排除原因: PCA分析显示这些样本严重偏离各自组的中心
 
 样本信息:
 - 便秘模型组 (Mod): %d 个样本
